@@ -480,6 +480,18 @@ function main() {
             app.activeDocument = tempDoc; // Switch to temp doc for paste
             tempDoc.paste();
 
+            // Pre-process the image: Resize if too large and flatten
+            var maxWidth = 1024;
+            var maxHeight = 1024;
+            if (tempDoc.width.as('px') > maxWidth || tempDoc.height.as('px') > maxHeight) {
+                if (tempDoc.width > tempDoc.height) {
+                    tempDoc.resizeImage(UnitValue(maxWidth, "px"), null, null, ResampleMethod.BICUBIC);
+                } else {
+                    tempDoc.resizeImage(null, UnitValue(maxHeight, "px"), null, ResampleMethod.BICUBIC);
+                }
+            }
+            tempDoc.flatten();
+
             // Save temp doc as PNG to get bytes
             var tempPngFile = new File(Folder.temp + "/gemini_selection_" + Date.now() + ".png");
             var pngSaveOptions = new PNGSaveOptions();
