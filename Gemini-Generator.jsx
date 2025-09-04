@@ -515,14 +515,20 @@ function main() {
         }
         var jsonPayload = '{"contents":[{"parts":[' + parts + ']}]}';
 
+        var tempPayloadFile = new File(Folder.temp + "/gemini_payload_" + Date.now() + ".json");
+        tempPayloadFile.open("w");
+        tempPayloadFile.write(jsonPayload);
+        tempPayloadFile.close();
+
         var command = 'curl -s -X POST "' + API_ENDPOINT + '"' +
             ' -H "Content-Type: application/json"' +
             ' -H "x-goog-api-key: ' + gApiKey + '"' +
-            ' -d ' + "'" + jsonPayload + "'" +
+            ' -d @' + '"' + tempPayloadFile.fsName + '"' +
             ' > "' + tempResponseFile.fsName + '"';
 
         // Execute the command
         app.system(command);
+        tempPayloadFile.remove();
 
         // Process the response
         try {
