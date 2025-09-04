@@ -1,5 +1,233 @@
 #target photoshop
 
+// json2.js
+// 2023-05-10
+// Public Domain.
+if (typeof JSON !== "object") {
+    JSON = {};
+}
+(function () {
+    "use strict";
+    var rx_one = /^[\],:{}\s]*$/;
+    var rx_two = /\\(?:["\\\/bfnrt]|u[0-9a-fA-F]{4})/g;
+    var rx_three = /"[^"\\\n\r]*"|true|false|null|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g;
+    var rx_four = /(?:^|:|,)(?:\s*\[)+/g;
+    var rx_escapable = /[\\"\u0000-\u001f\u007f-\u009f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
+    var rx_dangerous = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
+    function f(n) {
+        return (n < 10) ? "0" + n : n;
+    }
+    function this_value() {
+        return this.valueOf();
+    }
+    if (typeof Date.prototype.toJSON !== "function") {
+        Date.prototype.toJSON = function () {
+            return isFinite(this.valueOf()) ? (
+                this.getUTCFullYear() +
+                "-" +
+                f(this.getUTCMonth() + 1) +
+                "-" +
+                f(this.getUTCDate()) +
+                "T" +
+                f(this.getUTCHours()) +
+                ":" +
+                f(this.getUTCMinutes()) +
+                ":" +
+                f(this.getUTCSeconds()) +
+                "Z"
+            ) : null;
+        };
+        Boolean.prototype.toJSON = this_value;
+        Number.prototype.toJSON = this_value;
+        String.prototype.toJSON = this_value;
+    }
+    var gap;
+    var indent;
+    var meta;
+    var rep;
+    function quote(string) {
+        rx_escapable.lastIndex = 0;
+        return rx_escapable.test(string) ?
+            "\"" + string.replace(rx_escapable, function (a) {
+                var c = meta[a];
+                return typeof c === "string" ?
+                    c :
+                    "\\u" + ("0000" + a.charCodeAt(0).toString(16)).slice(-4);
+            }) + "\"" :
+            "\"" + string + "\"";
+    }
+    function str(key, holder) {
+        var i;
+        var k;
+        var v;
+        var length;
+        var mind = gap;
+        var partial;
+        var value = holder[key];
+        if (
+            value &&
+            typeof value === "object" &&
+            typeof value.toJSON === "function"
+        ) {
+            value = value.toJSON(key);
+        }
+        if (typeof rep === "function") {
+            value = rep.call(holder, key, value);
+        }
+        switch (typeof value) {
+            case "string":
+                return quote(value);
+            case "number":
+                return (isFinite(value)) ? String(value) : "null";
+            case "boolean":
+            case "null":
+                return String(value);
+            case "object":
+                if (!value) {
+                    return "null";
+                }
+                gap += indent;
+                partial = [];
+                if (Object.prototype.toString.apply(value) === "[object Array]") {
+                    length = value.length;
+                    for (i = 0; i < length; i += 1) {
+                        partial[i] = str(i, value) || "null";
+                    }
+                    v = partial.length === 0 ?
+                        "[]" :
+                        gap ?
+                        ("[\n" +
+                            gap +
+                            partial.join(",\n" + gap) +
+                            "\n" +
+                            mind +
+                            "]") :
+                        "[" + partial.join(",") + "]";
+                    gap = mind;
+                    return v;
+                }
+                if (rep && typeof rep === "object") {
+                    length = rep.length;
+                    for (i = 0; i < length; i += 1) {
+                        if (typeof rep[i] === "string") {
+                            k = rep[i];
+                            v = str(k, value);
+                            if (v) {
+                                partial.push(quote(k) + (
+                                    (gap) ?
+                                    ": " :
+                                    ":"
+                                ) + v);
+                            }
+                        }
+                    }
+                } else {
+                    for (k in value) {
+                        if (Object.prototype.hasOwnProperty.call(value, k)) {
+                            v = str(k, value);
+                            if (v) {
+                                partial.push(quote(k) + (
+                                    (gap) ?
+                                    ": " :
+                                    ":"
+                                ) + v);
+                            }
+                        }
+                    }
+                }
+                v = partial.length === 0 ?
+                    "{}" :
+                    gap ?
+                    "{\n" + gap + partial.join(",\n" + gap) + "\n" + mind + "}" :
+                    "{" + partial.join(",") + "}";
+                gap = mind;
+                return v;
+        }
+    }
+    if (typeof JSON.stringify !== "function") {
+        meta = {
+            "\b": "\\b",
+            "\t": "\\t",
+            "\n": "\\n",
+            "\f": "\\f",
+            "\r": "\\r",
+            "\"": "\\\"",
+            "\\": "\\\\"
+        };
+        JSON.stringify = function (value, replacer, space) {
+            var i;
+            gap = "";
+            indent = "";
+            if (typeof space === "number") {
+                for (i = 0; i < space; i += 1) {
+                    indent += " ";
+                }
+            } else if (typeof space === "string") {
+                indent = space;
+            }
+            rep = replacer;
+            if (replacer && typeof replacer !== "function" && (
+                    typeof replacer !== "object" ||
+                    typeof replacer.length !== "number"
+                )) {
+                throw new Error("JSON.stringify");
+            }
+            return str("", {
+                "": value
+            });
+        };
+    }
+    if (typeof JSON.parse !== "function") {
+        JSON.parse = function (text, reviver) {
+            var j;
+            function walk(holder, key) {
+                var k;
+                var v;
+                var value = holder[key];
+                if (value && typeof value === "object") {
+                    for (k in value) {
+                        if (Object.prototype.hasOwnProperty.call(value, k)) {
+                            v = walk(value, k);
+                            if (v !== undefined) {
+                                value[k] = v;
+                            } else {
+                                delete value[k];
+                            }
+                        }
+                    }
+                }
+                return reviver.call(holder, key, value);
+            }
+            text = String(text);
+            rx_dangerous.lastIndex = 0;
+            if (rx_dangerous.test(text)) {
+                text = text.replace(rx_dangerous, function (a) {
+                    return (
+                        "\\u" +
+                        ("0000" + a.charCodeAt(0).toString(16)).slice(-4)
+                    );
+                });
+            }
+            if (
+                rx_one.test(
+                    text
+                    .replace(rx_two, "@")
+                    .replace(rx_three, "]")
+                    .replace(rx_four, "")
+                )
+            ) {
+                j = eval("(" + text + ")");
+                return (typeof reviver === "function") ?
+                    walk({
+                        "": j
+                    }, "") :
+                    j;
+            }
+            throw new SyntaxError("JSON.parse");
+        };
+    }
+}());
+
 // --- Base64 Library ---
 // Adapted from base64-js by @beatgammit
 var base64 = (function() {
@@ -220,22 +448,71 @@ function main() {
 
     // This function is called by suspendHistory and uses the global variables
     function generateImage() {
-        var originalDoc = app.activeDocument;
+        var doc = app.activeDocument;
         app.preferences.rulerUnits = Units.PIXELS;
 
+        var selectionBounds;
+        var selectionBase64 = null;
+
+        try {
+            selectionBounds = doc.selection.bounds;
+        } catch (e) {
+            // No selection, continue with text-to-image
+        }
+
+        if (selectionBounds) {
+            // --- In-painting Workflow ---
+            // Save the selection so we can restore it later for masking
+            var selectionChannel = doc.channels.add();
+            doc.selection.store(selectionChannel);
+
+            var tempDoc = documents.add(
+                selectionBounds[2] - selectionBounds[0],
+                selectionBounds[3] - selectionBounds[1],
+                doc.resolution,
+                "TempSelection",
+                NewDocumentMode.RGB
+            );
+
+            // Copy from original and paste into temp doc
+            doc.selection.copy();
+            tempDoc.paste();
+
+            // Save temp doc as PNG to get bytes
+            var tempPngFile = new File(Folder.temp + "/gemini_selection_" + Date.now() + ".png");
+            var pngSaveOptions = new PNGSaveOptions();
+            pngSaveOptions.compression = 0; // No compression
+            pngSaveOptions.interlaced = false;
+            tempDoc.saveAs(tempPngFile, pngSaveOptions, true, Extension.LOWERCASE);
+
+            // Read bytes and convert to Base64
+            tempPngFile.open('r');
+            tempPngFile.encoding = 'BINARY';
+            var fileBytes = tempPngFile.read();
+            selectionBase64 = base64.fromByteArray(fileBytes);
+
+            // Clean up
+            tempDoc.close(SaveOptions.DONOTSAVECHANGES);
+            tempPngFile.remove();
+        }
+
+        // --- API Call ---
         var progress = new Window("palette", "Generating...");
-        progress.add("statictext", undefined, "Contacting Gemini API via curl...");
+        progress.add("statictext", undefined, "Contacting Gemini API...");
         progress.show();
 
         var tempResponseFile = new File(Folder.temp + "/gemini_response_" + Date.now() + ".json");
 
-        // Escape the prompt text for the JSON payload
         var escapedPrompt = gPromptText.replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
-        // Construct the JSON payload string
-        var jsonPayload = '{"contents":[{"parts":[{"text":"' + escapedPrompt + '"}]}]}';
+        // Construct the JSON payload, adding image data if it exists
+        var parts = '[{"text":"' + escapedPrompt + '"}]';
+        if (selectionBase64) {
+            var imagePart = ',{"inline_data":{"mime_type":"image/png","data":"' + selectionBase64 + '"}}';
+            parts = '[{"text":"' + escapedPrompt + '"},' + imagePart + ']';
+        }
+        var jsonPayload = '{"contents":[' + parts + ']}';
 
-        // Construct the curl command
         var command = 'curl -s -X POST "' + API_ENDPOINT + '"' +
             ' -H "Content-Type: application/json"' +
             ' -H "x-goog-api-key: ' + gApiKey + '"' +
@@ -272,8 +549,23 @@ function main() {
                     tempImageFile.close();
 
                     var placedItem = app.open(tempImageFile);
-                    var newLayer = placedItem.artLayers[0].duplicate(originalDoc);
+                    var newLayer = placedItem.artLayers[0].duplicate(doc);
                     newLayer.name = "Gemini: " + gPromptText.substring(0, 20);
+
+                    // If we had a selection, position and mask the new layer
+                    if (selectionBounds) {
+                        // Move the new layer to the selection's original position
+                        var deltaX = selectionBounds[0].as('px') - newLayer.bounds[0].as('px');
+                        var deltaY = selectionBounds[1].as('px') - newLayer.bounds[1].as('px');
+                        newLayer.translate(deltaX, deltaY);
+
+                        // Restore the original selection and apply it as a mask
+                        doc.selection.load(selectionChannel);
+                        app.activeDocument.activeLayer = newLayer;
+                        app.activeDocument.addLayerMask();
+                        selectionChannel.remove(); // Clean up the channel
+                    }
+
                     placedItem.close(SaveOptions.DONOTSAVECHANGES);
                     tempImageFile.remove();
 
