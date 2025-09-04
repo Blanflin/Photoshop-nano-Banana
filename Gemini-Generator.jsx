@@ -475,7 +475,9 @@ function main() {
             );
 
             // Copy from original and paste into temp doc
+            app.activeDocument = doc; // Ensure original doc is active for copy
             doc.selection.copy();
+            app.activeDocument = tempDoc; // Switch to temp doc for paste
             tempDoc.paste();
 
             // Save temp doc as PNG to get bytes
@@ -506,12 +508,12 @@ function main() {
         var escapedPrompt = gPromptText.replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
         // Construct the JSON payload, adding image data if it exists
-        var parts = '[{"text":"' + escapedPrompt + '"}]';
+        var parts = '{"text":"' + escapedPrompt + '"}';
         if (selectionBase64) {
             var imagePart = ',{"inline_data":{"mime_type":"image/png","data":"' + selectionBase64 + '"}}';
-            parts = '[{"text":"' + escapedPrompt + '"},' + imagePart + ']';
+            parts += imagePart;
         }
-        var jsonPayload = '{"contents":[' + parts + ']}';
+        var jsonPayload = '{"contents":[{"parts":[' + parts + ']}]}';
 
         var command = 'curl -s -X POST "' + API_ENDPOINT + '"' +
             ' -H "Content-Type: application/json"' +
@@ -549,8 +551,14 @@ function main() {
                     tempImageFile.close();
 
                     var placedItem = app.open(tempImageFile);
-                    var newLayer = placedItem.artLayers[0].duplicate(doc);
+                    var layerToMove = placedItem.artLayers[0];
+
+                    // Move the layer instead of duplicating it, which is more robust
+                    var newLayer = layerToMove.move(doc, ElementPlacement.PLACEATBEGINNING);
                     newLayer.name = "Gemini: " + gPromptText.substring(0, 20);
+
+                    placedItem.close(SaveOptions.DONOTSAVECHANGES);
+                    app.activeDocument = doc; // Explicitly set focus back to original document
 
                     // If we had a selection, position and mask the new layer
                     if (selectionBounds) {
@@ -565,8 +573,6 @@ function main() {
                         app.activeDocument.addLayerMask();
                         selectionChannel.remove(); // Clean up the channel
                     }
-
-                    placedItem.close(SaveOptions.DONOTSAVECHANGES);
                     tempImageFile.remove();
 
                     progress.close();
