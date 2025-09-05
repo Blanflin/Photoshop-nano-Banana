@@ -20,18 +20,19 @@ This script connects Adobe Photoshop to Google's Gemini family of models, allowi
 
 ## 2. First-Time Setup: Get Credentials
 
-This script uses the Google Cloud Vertex AI API, which requires a Project ID and an API Key for authentication.
+This script uses the Google Cloud Vertex AI API. To use it, you need to have the Google Cloud SDK (`gcloud`) installed and authenticated on your computer. The script will use your `gcloud` credentials to automatically generate temporary access tokens for each request.
 
-1.  **Find your Project ID:**
+1.  **Install and Authenticate `gcloud`:**
+    *   Follow the official instructions to [install the Google Cloud SDK](https://cloud.google.com/sdk/docs/install).
+    *   After installation, authenticate your user account by running the following command in your terminal or command prompt and following the instructions:
+        ```
+        gcloud auth application-default login
+        ```
+
+2.  **Find your Project ID:**
     *   Go to the [Google Cloud Console dashboard](https://console.cloud.google.com/home/dashboard).
     *   Your Project ID is listed in the "Project info" card.
-
-2.  **Create an API Key:**
-    *   In the Google Cloud Console, navigate to **APIs & Services > Credentials**.
-    *   Click **+ CREATE CREDENTIALS** at the top of the page and select **API key**.
-    *   Copy the generated API key. It is highly recommended to restrict this key to only be able to access the "Vertex AI API".
-
-3.  You will paste both your Project ID and your API Key into the script's dialog in Photoshop.
+    *   You only need to enter this Project ID into the script's dialog once.
 
 ## 3. Installation
 
@@ -51,7 +52,7 @@ After copying the files, you must **restart Photoshop** for the script to appear
 2.  Go to the `File` menu, then `Scripts`.
 3.  Click on `Gemini-Generator` in the list.
 4.  The "Gemini Image Generator" dialog will appear.
-    -   **First time?** Paste your Google Cloud Project ID and your API Key into the appropriate fields.
+    -   **First time?** Enter your Google Cloud Project ID. The script will handle the access token automatically.
     -   Enter your desired image prompt in the text box (e.g., "A beautiful oil painting of a cat in a library").
 5.  Click the "**Generate**" button.
 6.  The script will contact the Gemini API. After a few moments, a new layer containing the generated image will be added to your document.

@@ -385,11 +385,6 @@ function main() {
     apiPanel.alignChildren = ["fill", "top"];
     apiPanel.margins = 15;
 
-    var apiKeyGroup = apiPanel.add("group", undefined);
-    apiKeyGroup.orientation = "row";
-    apiKeyGroup.add("statictext", undefined, "Gemini API Key:");
-    var apiKeyInput = apiKeyGroup.add("edittext", [0, 0, 300, 20], settings.apiKey || "", { password: true });
-
     var projectIDGroup = apiPanel.add("group", undefined);
     projectIDGroup.orientation = "row";
     projectIDGroup.add("statictext", undefined, "Google Cloud Project ID:");
@@ -418,18 +413,12 @@ function main() {
     };
 
     // --- Global variables for passing to suspendHistory ---
-    var gApiKey, gPromptText, gProjectID;
+    var gPromptText, gProjectID;
 
     // Generate Button
     generateButton.onClick = function() {
-        gApiKey = apiKeyInput.text;
         gPromptText = promptInput.text;
         gProjectID = projectIDInput.text;
-
-        if (!gApiKey) {
-            alert("Please enter your Gemini API Key.");
-            return;
-        }
 
         if (!gProjectID) {
             alert("Please enter your Google Cloud Project ID.");
@@ -441,7 +430,7 @@ function main() {
             return;
         }
 
-        saveSettings({ apiKey: gApiKey, projectID: gProjectID });
+        saveSettings({ projectID: gProjectID });
 
         dialog.close();
 
@@ -458,6 +447,35 @@ function main() {
 
     // This function is called by suspendHistory and uses the global variables
     function generateImage() {
+        // 1. Get Access Token
+        var progress = new Window("palette", "Authenticating...");
+        progress.add("statictext", undefined, "Getting access token via gcloud...");
+        progress.show();
+
+        var tempTokenFile = new File(Folder.temp + "/gemini_token_" + Date.now() + ".txt");
+        var gcloudCommand = 'gcloud auth application-default print-access-token > "' + tempTokenFile.fsName + '"';
+        app.system(gcloudCommand);
+
+        if (!tempTokenFile.exists) {
+            alert("Error: gcloud command failed to create token file. Make sure the Google Cloud SDK is installed and authenticated correctly.");
+            progress.close();
+            return;
+        }
+
+        tempTokenFile.open('r');
+        var gAccessToken = tempTokenFile.read();
+        tempTokenFile.close();
+        tempTokenFile.remove();
+
+        if (!gAccessToken || gAccessToken.length < 20) {
+            alert("Failed to get access token. The token file was created but empty or invalid. Make sure you have run 'gcloud auth application-default login' in your terminal.");
+            progress.close();
+            return;
+        }
+
+        progress.children[0].text = "Authentication successful. Preparing image...";
+        progress.close(); // Close it for now, will re-open for API call
+
         var doc = app.activeDocument;
         app.preferences.rulerUnits = Units.PIXELS;
 
@@ -547,7 +565,7 @@ function main() {
 
         var tempResponseFile = new File(Folder.temp + "/gemini_response_" + Date.now() + ".json");
 
-        var API_ENDPOINT = "https://us-central1-aiplatform.googleapis.com/v1/projects/" + gProjectID + "/locations/us-central1/publishers/google/models/imagegeneration@006:predict?key=" + gApiKey;
+        var API_ENDPOINT = "https://us-central1-aiplatform.googleapis.com/v1/projects/" + gProjectID + "/locations/us-central1/publishers/google/models/imagegeneration@006:predict";
 
         var jsonPayload;
         if (baseImageBase64 && maskImageBase64) {
@@ -581,6 +599,7 @@ function main() {
         tempPayloadFile.close();
 
         var command = 'curl -s -X POST' +
+            ' -H "Authorization: Bearer ' + gAccessToken + '"' +
             ' -H "Content-Type: application/json; charset=utf-8"' +
             ' "' + API_ENDPOINT + '"' +
             ' -d @' + '"' + tempPayloadFile.fsName + '"' +
@@ -617,10 +636,9 @@ function main() {
                     tempImageFile.close();
 
                     var placedItem = app.open(tempImageFile);
-                    var layerToMove = placedItem.artLayers[0];
 
-                    // Move the layer instead of duplicating it, which is more robust
-                    var newLayer = layerToMove.move(doc, ElementPlacement.PLACEATBEGINNING);
+                    // Duplicate the layer to the original document
+                    var newLayer = placedItem.artLayers[0].duplicate(doc, ElementPlacement.PLACEATBEGINNING);
                     newLayer.name = "Gemini: " + gPromptText.substring(0, 20);
 
                     placedItem.close(SaveOptions.DONOTSAVECHANGES);
