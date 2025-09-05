@@ -370,7 +370,6 @@ function main() {
     // --- Configuration ---
     var SCRIPT_NAME = "Gemini Image Generator";
     var SETTINGS_FILE = new File(Folder.userData + "/gemini_photoshop_settings.json");
-    var API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent";
 
     // --- Globals ---
     var settings = loadSettings();
@@ -381,14 +380,20 @@ function main() {
     dialog.alignChildren = ["fill", "top"];
 
     // API Key Panel
-    var apiKeyPanel = dialog.add("panel", undefined, "API Configuration");
-    apiKeyPanel.orientation = "column";
-    apiKeyPanel.alignChildren = ["fill", "top"];
-    apiKeyPanel.margins = 15;
-    var apiKeyGroup = apiKeyPanel.add("group", undefined);
+    var apiPanel = dialog.add("panel", undefined, "API Configuration");
+    apiPanel.orientation = "column";
+    apiPanel.alignChildren = ["fill", "top"];
+    apiPanel.margins = 15;
+
+    var apiKeyGroup = apiPanel.add("group", undefined);
     apiKeyGroup.orientation = "row";
     apiKeyGroup.add("statictext", undefined, "Gemini API Key:");
     var apiKeyInput = apiKeyGroup.add("edittext", [0, 0, 300, 20], settings.apiKey || "", { password: true });
+
+    var projectIDGroup = apiPanel.add("group", undefined);
+    projectIDGroup.orientation = "row";
+    projectIDGroup.add("statictext", undefined, "Google Cloud Project ID:");
+    var projectIDInput = projectIDGroup.add("edittext", [0, 0, 255, 20], settings.projectID || "");
 
     // Prompt Panel
     var promptPanel = dialog.add("panel", undefined, "Image Prompt");
@@ -413,16 +418,21 @@ function main() {
     };
 
     // --- Global variables for passing to suspendHistory ---
-    var gApiKey;
-    var gPromptText;
+    var gApiKey, gPromptText, gProjectID;
 
     // Generate Button
     generateButton.onClick = function() {
         gApiKey = apiKeyInput.text;
         gPromptText = promptInput.text;
+        gProjectID = projectIDInput.text;
 
         if (!gApiKey) {
             alert("Please enter your Gemini API Key.");
+            return;
+        }
+
+        if (!gProjectID) {
+            alert("Please enter your Google Cloud Project ID.");
             return;
         }
 
@@ -431,7 +441,7 @@ function main() {
             return;
         }
 
-        saveSettings({ apiKey: gApiKey });
+        saveSettings({ apiKey: gApiKey, projectID: gProjectID });
 
         dialog.close();
 
@@ -452,7 +462,9 @@ function main() {
         app.preferences.rulerUnits = Units.PIXELS;
 
         var selectionBounds;
-        var selectionBase64 = null;
+        var baseImageBase64 = null;
+        var maskImageBase64 = null;
+        var selectionChannel = null;
 
         try {
             selectionBounds = doc.selection.bounds;
@@ -462,52 +474,70 @@ function main() {
 
         if (selectionBounds) {
             // --- In-painting Workflow ---
-            // Save the selection so we can restore it later for masking
-            var selectionChannel = doc.channels.add();
+            // Save the selection on the original document so we can use it for masking later
+            selectionChannel = doc.channels.add();
             doc.selection.store(selectionChannel);
 
-            var tempDoc = documents.add(
-                selectionBounds[2] - selectionBounds[0],
-                selectionBounds[3] - selectionBounds[1],
-                doc.resolution,
-                "TempSelection",
-                NewDocumentMode.RGB
-            );
+            // 1. Create Base Image
+            var baseImageDoc = doc.duplicate("TempBaseImage", true);
+            app.activeDocument = baseImageDoc;
+            var originalWidth = baseImageDoc.width;
+            var originalHeight = baseImageDoc.height;
+            var wasResized = false;
 
-            // Copy from original and paste into temp doc
-            app.activeDocument = doc; // Ensure original doc is active for copy
-            doc.selection.copy();
-            app.activeDocument = tempDoc; // Switch to temp doc for paste
-            tempDoc.paste();
-
-            // Pre-process the image: Resize if too large and flatten
             var maxWidth = 1024;
             var maxHeight = 1024;
-            if (tempDoc.width.as('px') > maxWidth || tempDoc.height.as('px') > maxHeight) {
-                if (tempDoc.width > tempDoc.height) {
-                    tempDoc.resizeImage(UnitValue(maxWidth, "px"), null, null, ResampleMethod.BICUBIC);
+            if (baseImageDoc.width.as('px') > maxWidth || baseImageDoc.height.as('px') > maxHeight) {
+                if (baseImageDoc.width > baseImageDoc.height) {
+                    baseImageDoc.resizeImage(UnitValue(maxWidth, "px"), null, null, ResampleMethod.BICUBIC);
                 } else {
-                    tempDoc.resizeImage(null, UnitValue(maxHeight, "px"), null, ResampleMethod.BICUBIC);
+                    baseImageDoc.resizeImage(null, UnitValue(maxHeight, "px"), null, ResampleMethod.BICUBIC);
                 }
+                wasResized = true;
             }
-            tempDoc.flatten();
-
-            // Save temp doc as PNG to get bytes
-            var tempPngFile = new File(Folder.temp + "/gemini_selection_" + Date.now() + ".png");
+            baseImageDoc.flatten();
+            var tempPngFile = new File(Folder.temp + "/gemini_base_" + Date.now() + ".png");
             var pngSaveOptions = new PNGSaveOptions();
-            pngSaveOptions.compression = 0; // No compression
-            pngSaveOptions.interlaced = false;
-            tempDoc.saveAs(tempPngFile, pngSaveOptions, true, Extension.LOWERCASE);
-
-            // Read bytes and convert to Base64
+            baseImageDoc.saveAs(tempPngFile, pngSaveOptions, true, Extension.LOWERCASE);
             tempPngFile.open('r');
             tempPngFile.encoding = 'BINARY';
-            var fileBytes = tempPngFile.read();
-            selectionBase64 = base64.fromByteArray(fileBytes);
-
-            // Clean up
-            tempDoc.close(SaveOptions.DONOTSAVECHANGES);
+            baseImageBase64 = base64.fromByteArray(tempPngFile.read());
+            tempPngFile.close();
             tempPngFile.remove();
+
+            // 2. Create Mask Image
+            var maskDoc = app.documents.add(baseImageDoc.width, baseImageDoc.height, baseImageDoc.resolution, "TempMask", NewDocumentMode.RGB);
+            app.activeDocument = maskDoc;
+
+            // Fill with black
+            var black = new SolidColor();
+            black.rgb.hexValue = "000000";
+            maskDoc.artLayers.add();
+            maskDoc.selection.selectAll();
+            maskDoc.selection.fill(black);
+            maskDoc.selection.deselect();
+
+            // Load the saved selection and fill with white
+            maskDoc.selection.load(selectionChannel);
+            var white = new SolidColor();
+            white.rgb.hexValue = "FFFFFF";
+            maskDoc.selection.fill(white);
+            maskDoc.selection.deselect();
+
+            var tempMaskFile = new File(Folder.temp + "/gemini_mask_" + Date.now() + ".png");
+            maskDoc.saveAs(tempMaskFile, pngSaveOptions, true, Extension.LOWERCASE);
+            tempMaskFile.open('r');
+            tempMaskFile.encoding = 'BINARY';
+            maskImageBase64 = base64.fromByteArray(tempMaskFile.read());
+            tempMaskFile.close();
+            tempMaskFile.remove();
+
+            // 3. Clean up temp documents and restore focus
+            baseImageDoc.close(SaveOptions.DONOTSAVECHANGES);
+            maskDoc.close(SaveOptions.DONOTSAVECHANGES);
+            app.activeDocument = doc;
+
+            // We keep selectionChannel on the main doc to use for masking the final result
         }
 
         // --- API Call ---
@@ -517,24 +547,42 @@ function main() {
 
         var tempResponseFile = new File(Folder.temp + "/gemini_response_" + Date.now() + ".json");
 
-        var escapedPrompt = gPromptText.replace(/"/g, '\\"').replace(/\n/g, '\\n');
+        var API_ENDPOINT = "https://us-central1-aiplatform.googleapis.com/v1/projects/" + gProjectID + "/locations/us-central1/publishers/google/models/imagegeneration@006:predict?key=" + gApiKey;
 
-        // Construct the JSON payload, adding image data if it exists
-        var parts = '{"text":"' + escapedPrompt + '"}';
-        if (selectionBase64) {
-            var imagePart = ',{"inline_data":{"mime_type":"image/png","data":"' + selectionBase64 + '"}}';
-            parts += imagePart;
+        var jsonPayload;
+        if (baseImageBase64 && maskImageBase64) {
+            // In-painting payload
+            jsonPayload = {
+                "instances": [{
+                    "prompt": gPromptText,
+                    "image": { "bytesBase64Encoded": baseImageBase64 },
+                    "mask": { "bytesBase64Encoded": maskImageBase64 }
+                }],
+                "parameters": {
+                    "editMode": "inpainting-insert",
+                    "sampleCount": 1
+                }
+            };
+        } else {
+            // Text-to-image payload
+            jsonPayload = {
+                "instances": [{
+                    "prompt": gPromptText
+                }],
+                "parameters": {
+                    "sampleCount": 1
+                }
+            };
         }
-        var jsonPayload = '{"contents":[{"parts":[' + parts + ']}]}';
 
         var tempPayloadFile = new File(Folder.temp + "/gemini_payload_" + Date.now() + ".json");
         tempPayloadFile.open("w");
-        tempPayloadFile.write(jsonPayload);
+        tempPayloadFile.write(JSON.stringify(jsonPayload));
         tempPayloadFile.close();
 
-        var command = 'curl -s -X POST "' + API_ENDPOINT + '"' +
-            ' -H "Content-Type: application/json"' +
-            ' -H "x-goog-api-key: ' + gApiKey + '"' +
+        var command = 'curl -s -X POST' +
+            ' -H "Content-Type: application/json; charset=utf-8"' +
+            ' "' + API_ENDPOINT + '"' +
             ' -d @' + '"' + tempPayloadFile.fsName + '"' +
             ' > "' + tempResponseFile.fsName + '"';
 
@@ -555,9 +603,9 @@ function main() {
 
             var response = JSON.parse(responseText);
 
-            if (response.candidates && response.candidates.length > 0) {
+            if (response.predictions && response.predictions.length > 0) {
                 progress.children[0].text = "Processing image data...";
-                var b64String = response.candidates[0].content.parts[0].inlineData.data;
+                var b64String = response.predictions[0].bytesBase64Encoded;
 
                 if (b64String) {
                     var tempImageFile = new File(Folder.temp + "/gemini_image_" + Date.now() + ".png");
@@ -580,6 +628,11 @@ function main() {
 
                     // If we had a selection, position and mask the new layer
                     if (selectionBounds) {
+                        // If we downscaled the image for the API, scale it back up to fit the original selection.
+                        if (wasResized) {
+                            newLayer.resize(originalWidth, originalHeight, ResampleMethod.BICUBIC);
+                        }
+
                         // Move the new layer to the selection's original position
                         var deltaX = selectionBounds[0].as('px') - newLayer.bounds[0].as('px');
                         var deltaY = selectionBounds[1].as('px') - newLayer.bounds[1].as('px');
