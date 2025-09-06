@@ -527,24 +527,23 @@ function main() {
             tempPngFile.remove();
 
             // 2. Create Mask Image
-            var maskDoc = app.documents.add(baseImageDoc.width, baseImageDoc.height, baseImageDoc.resolution, "TempMask", NewDocumentMode.RGB);
+            var maskDoc = app.documents.add(baseImageDoc.width, baseImageDoc.height, baseImageDoc.resolution, "TempMask", NewDocumentMode.GRAYSCALE);
             app.activeDocument = maskDoc;
 
             // Fill with black
             var black = new SolidColor();
-            black.rgb.hexValue = "000000";
-            maskDoc.artLayers.add();
+            black.gray.gray = 100;
             maskDoc.selection.selectAll();
             maskDoc.selection.fill(black);
             maskDoc.selection.deselect();
 
-            // Load the saved selection and fill with white
+            // Load the original selection and fill it with white
             maskDoc.selection.load(selectionChannel);
             if (wasResized) {
                 maskDoc.selection.resize(scaleFactor * 100, scaleFactor * 100, AnchorPosition.MIDDLECENTER);
             }
             var white = new SolidColor();
-            white.rgb.hexValue = "FFFFFF";
+            white.gray.gray = 0;
             maskDoc.selection.fill(white);
             maskDoc.selection.deselect();
 
