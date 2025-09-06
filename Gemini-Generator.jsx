@@ -580,7 +580,9 @@ function main() {
                 "instances": [{
                     "prompt": gPromptText,
                     "image": { "bytesBase64Encoded": baseImageBase64 },
-                    "mask": { "bytesBase64Encoded": maskImageBase64 }
+                    "mask": {
+                        "image": { "bytesBase64Encoded": maskImageBase64 }
+                    }
                 }],
                 "parameters": {
                     "editMode": "inpainting-insert",
@@ -598,12 +600,6 @@ function main() {
                 }
             };
         }
-
-        // --- For debugging: Save the payload to the desktop ---
-        var payloadLogFile = new File(Folder.desktop + "/photoshop_api_payload.json");
-        payloadLogFile.open("w");
-        payloadLogFile.write(JSON.stringify(jsonPayload, null, 2));
-        payloadLogFile.close();
 
         var tempPayloadFile = new File(Folder.temp + "/gemini_payload_" + Date.now() + ".json");
         tempPayloadFile.open("w");
