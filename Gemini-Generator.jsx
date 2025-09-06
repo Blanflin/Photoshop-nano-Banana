@@ -502,13 +502,16 @@ function main() {
             var originalWidth = baseImageDoc.width;
             var originalHeight = baseImageDoc.height;
             var wasResized = false;
+            var scaleFactor = 1;
 
             var maxWidth = 1024;
             var maxHeight = 1024;
             if (baseImageDoc.width.as('px') > maxWidth || baseImageDoc.height.as('px') > maxHeight) {
                 if (baseImageDoc.width > baseImageDoc.height) {
+                    scaleFactor = maxWidth / originalWidth.as('px');
                     baseImageDoc.resizeImage(UnitValue(maxWidth, "px"), null, null, ResampleMethod.BICUBIC);
                 } else {
+                    scaleFactor = maxHeight / originalHeight.as('px');
                     baseImageDoc.resizeImage(null, UnitValue(maxHeight, "px"), null, ResampleMethod.BICUBIC);
                 }
                 wasResized = true;
@@ -537,6 +540,9 @@ function main() {
 
             // Load the saved selection and fill with white
             maskDoc.selection.load(selectionChannel);
+            if (wasResized) {
+                maskDoc.selection.resize(scaleFactor * 100, scaleFactor * 100, AnchorPosition.MIDDLECENTER);
+            }
             var white = new SolidColor();
             white.rgb.hexValue = "FFFFFF";
             maskDoc.selection.fill(white);
@@ -598,7 +604,7 @@ function main() {
         tempPayloadFile.write(JSON.stringify(jsonPayload));
         tempPayloadFile.close();
 
-        var command = 'curl -s -X POST' +
+        var command = 'curl -s -i -X POST' + // Use -i to include headers in output
             ' -H "Authorization: Bearer ' + gAccessToken + '"' +
             ' -H "Content-Type: application/json; charset=utf-8"' +
             ' "' + API_ENDPOINT + '"' +
@@ -612,15 +618,29 @@ function main() {
         // Process the response
         try {
             tempResponseFile.open("r");
-            var responseText = tempResponseFile.read();
+            var fullResponse = tempResponseFile.read();
             tempResponseFile.close();
             tempResponseFile.remove();
 
-            if (responseText.length === 0) {
+            if (fullResponse.length === 0) {
                 throw new Error("API request failed. The response was empty. This could be due to a curl error or network issue.");
             }
 
-            var response = JSON.parse(responseText);
+            // Separate headers and body
+            var headerEndPosition = fullResponse.indexOf("\r\n\r\n");
+            if (headerEndPosition === -1) {
+                throw new Error("Invalid API response. Could not find HTTP headers. Response: " + fullResponse);
+            }
+            var headerText = fullResponse.substring(0, headerEndPosition);
+            var bodyText = fullResponse.substring(headerEndPosition + 4);
+
+            // Check status code from headers
+            var statusLine = headerText.split("\r\n")[0];
+            if (statusLine.indexOf("200 OK") === -1) {
+                throw new Error("API returned an error:\n" + statusLine + "\n\n" + bodyText);
+            }
+
+            var response = JSON.parse(bodyText);
 
             if (response.predictions && response.predictions.length > 0) {
                 progress.children[0].text = "Processing image data...";
