@@ -465,6 +465,7 @@ function main() {
         tempTokenFile.open('r');
         var gAccessToken = tempTokenFile.read();
         tempTokenFile.close();
+        gAccessToken = gAccessToken.replace(/^\s+|\s+$/g, ''); // Trim whitespace/newlines
         tempTokenFile.remove();
 
         if (!gAccessToken || gAccessToken.length < 20) {
