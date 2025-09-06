@@ -599,6 +599,12 @@ function main() {
             };
         }
 
+        // --- For debugging: Save the payload to the desktop ---
+        var payloadLogFile = new File(Folder.desktop + "/photoshop_api_payload.json");
+        payloadLogFile.open("w");
+        payloadLogFile.write(JSON.stringify(jsonPayload, null, 2));
+        payloadLogFile.close();
+
         var tempPayloadFile = new File(Folder.temp + "/gemini_payload_" + Date.now() + ".json");
         tempPayloadFile.open("w");
         tempPayloadFile.write(JSON.stringify(jsonPayload));
